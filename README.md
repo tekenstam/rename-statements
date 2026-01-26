@@ -1,50 +1,27 @@
-## Prerequisite
-
-You will need to install these packages:
-
-```bash
-pip install pdfplumber python-dateutil
-```
-
-Or:
-
-```bash
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-```
-
-
-
-
-
-
-
-# 📂 Statement Sorter
+# Statement Sorter 📂
 
 **Statement Sorter** is a Python-based utility that automates the tedious task of renaming downloaded bank statements. Instead of manually checking dates and account types, this script "reads" the first page of your PDFs, identifies the financial institution, extracts the closing date, and organizes the files into a clean, searchable directory structure.
 
-Because let's face it: `Statement_20260119_12345.pdf` is a terrible filename.
+Because let's face it: `Statement_12345.pdf` is a terrible filename.
 
 
-## ✨ Features
+## Features ✨
 
 * **Intelligent Extraction:** Uses `pdfplumber` to accurately read PDF text.
 * **Flexible Date Parsing:** Handles various date formats (e.g., "Jan 19, 2026" or "01/19/26") using `python-dateutil`.
 * **Dry Run Mode:** Test your regex rules without moving a single file.
-* **Auto-Organization:** Optionally sorts statements into subfolders by bank name (e.g., `/Accounts/Nordstrom/`).
+* **Auto-Organization:** Optionally sorts statements into subfolders by bank name and year (e.g., `/Accounts/Nordstrom/2026`).
 * **Robust Logging:** Verbose mode for debugging tricky PDF layouts.
 
 
-## 🚀 Getting Started
+## Getting Started 🚀
 
-### 1. Prerequisites
+### Prerequisites
 
 You’ll need Python 3.x installed. Install the required dependencies via pip:
 
 ```bash
 pip install pdfplumber python-dateutil
-
 ```
 
 Or you can use a virtual Python environment.
@@ -55,11 +32,11 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 2. Installation
+### Installation
 
 Clone your local repository or simply save `rename_statements.py` to your project folder.
 
-### 3. Usage
+### Usage
 
 Run the script from your terminal using command-line arguments.
 
@@ -88,7 +65,7 @@ python rename_statements.py --input ./inbox --output ./Financials --organize
 ```
 
 
-## 🛠 Adding New Banks
+## Adding New Banks 🛠
 
 To add a new financial institution, update the `BANK_RULES` list in `rename_statements.py`:
 
@@ -101,6 +78,8 @@ BANK_RULES = [
     }
 ]
 ```
+
+Feel free to submit a new PR for new BANK_RULES, if you'd like.
 
 ### How to customize this for your banks
 
@@ -132,7 +111,7 @@ December 1, 2024	[A-Za-z]+\s\d{1,2},\s\d{4}
 ```
 
 
-## 📝 Troubleshooting
+## Troubleshooting 📝
 
 * **No Match Found:** Run with `--verbose`. The script will tell you if it recognized the bank but failed the date regex, or if it didn't see the "signature" phrase at all.
 * **Encrypted PDFs:** Some banks password-protect their PDFs. This script currently does not support encrypted files unless you decrypt them first.
