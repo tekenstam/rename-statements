@@ -1,59 +1,59 @@
 import os
 import re
 import shutil
-import pdfplumber
-from dateutil import parser
+import argparse
+import sys
+import logging
 from datetime import datetime
 
-# ================= CONFIGURATION =================
-# Set to False to actually rename/move files
-DRY_RUN = True 
+# Third-party libraries
+try:
+    import pdfplumber
+    from dateutil import parser
+except ImportError:
+    print("Error: Missing required libraries. Please run: pip install pdfplumber python-dateutil")
+    sys.exit(1)
 
-INPUT_FOLDER = "./inbox"
-OUTPUT_FOLDER = "./processed"
-
-# Define rules for each bank. 
-# 'signature': A unique phrase found in the PDF text (e.g., "Chase Freedom", "Wells Fargo").
-# 'date_regex': A regex pattern to find the date. The date part must be in a capture group ().
+# ================= CONFIGURATION RULES =================
+# You can keep these here or move them to a separate JSON/YAML file in the future.
 BANK_RULES = [
+    {
+        "name": "Nordstrom",
+        "signature": "NORDSTROM CARD SERVICES",
+        "date_regex": r"to\s+([A-Za-z]+\s\d{1,2},\s\d{4})"
+    },
     {
         "name": "Chase_Credit_Card",
         "signature": "Chase Card Services",
-        # Example pattern: "Opening/Closing Date 12/02/23 - 01/01/24"
-        # We capture the second date (Closing Date)
         "date_regex": r"Opening/Closing Date\s+\d{2}/\d{2}/\d{2}\s+-\s+(\d{2}/\d{2}/\d{2})"
     },
     {
         "name": "Amex",
         "signature": "American Express",
-        # Example pattern: "Closing Date Jan 04, 2024"
         "date_regex": r"Closing Date\s+([A-Za-z]+\s\d{1,2},\s\d{4})"
     },
     {
         "name": "Schwab_Brokerage",
         "signature": "Charles Schwab & Co",
-        # Example pattern: "Statement Period: January 1, 2024 through January 31, 2024"
         "date_regex": r"Statement Period:.*through\s+([A-Za-z]+\s\d{1,2},\s\d{4})"
-    },
-    {
-        "name": "Nordstrom",
-        "signature": "NORDSTROM CARD SERVICES", 
-        # Matches "to January 19, 2026" and captures the date part
-        "date_regex": r"to\s+([A-Za-z]+\s\d{1,2},\s\d{4})"
     }
 ]
-# =================================================
+# =======================================================
+
+def setup_logging(verbose):
+    level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
 
 def extract_text_from_pdf(filepath):
-    """Extracts text from the first page of the PDF."""
+    """Safely extracts text from the first page of the PDF."""
     try:
         with pdfplumber.open(filepath) as pdf:
-            # Usually the date is on the first page
-            first_page = pdf.pages[0]
-            text = first_page.extract_text()
-            return text
+            if not pdf.pages:
+                logging.warning(f"File is empty or has no pages: {filepath}")
+                return None
+            return pdf.pages[0].extract_text()
     except Exception as e:
-        print(f"Error reading {filepath}: {e}")
+        logging.error(f"Failed to read PDF {filepath}: {e}")
         return None
 
 def normalize_date(date_string):
@@ -61,62 +61,108 @@ def normalize_date(date_string):
     try:
         dt = parser.parse(date_string)
         return dt.strftime("%Y-%m-%d")
-    except ValueError:
+    except (ValueError, TypeError) as e:
+        logging.warning(f"Could not parse date string '{date_string}': {e}")
         return None
 
-def process_files():
-    if not os.path.exists(OUTPUT_FOLDER) and not DRY_RUN:
-        os.makedirs(OUTPUT_FOLDER)
+def process_files(input_dir, output_dir, dry_run, organize_by_folder):
+    # validate input directory
+    if not os.path.exists(input_dir):
+        logging.error(f"Input directory does not exist: {input_dir}")
+        sys.exit(1)
 
-    for filename in os.listdir(INPUT_FOLDER):
+    # If not a dry run, ensure output directory exists (base level)
+    if not dry_run and not os.path.exists(output_dir):
+        try:
+            os.makedirs(output_dir)
+        except OSError as e:
+            logging.error(f"Could not create output directory {output_dir}: {e}")
+            sys.exit(1)
+
+    files_processed = 0
+    files_renamed = 0
+
+    for filename in os.listdir(input_dir):
         if not filename.lower().endswith(".pdf"):
             continue
 
-        filepath = os.path.join(INPUT_FOLDER, filename)
-        print(f"Processing: {filename}...")
+        filepath = os.path.join(input_dir, filename)
+        logging.info(f"Processing: {filename}")
+        files_processed += 1
 
         text = extract_text_from_pdf(filepath)
         if not text:
+            logging.warning(f"  [Skipping] No text found in {filename}")
             continue
 
         matched_rule = None
-        
-        # 1. Identify the Bank
         for rule in BANK_RULES:
             if rule["signature"] in text:
                 matched_rule = rule
                 break
         
         if not matched_rule:
-            print(f"  [!] No bank signature matched for {filename}")
+            logging.warning(f"  [Skipping] No bank signature matched for {filename}")
             continue
 
-        # 2. Extract the Date
-        # re.IGNORECASE makes it less brittle regarding capitalization
+        # Search for date using regex
         match = re.search(matched_rule["date_regex"], text, re.IGNORECASE)
         
         if match:
-            raw_date = match.group(1) # Get the captured group from regex
+            raw_date = match.group(1)
             formatted_date = normalize_date(raw_date)
             
             if formatted_date:
+                # Construct new filename
                 new_filename = f"{matched_rule['name']} - {formatted_date} Statement.pdf"
-
-                new_path = os.path.join(OUTPUT_FOLDER, new_filename)
                 
-                if DRY_RUN:
-                    print(f"  [DRY RUN] Would rename to: {new_filename}")
+                # Determine final destination folder
+                final_output_dir = output_dir
+                if organize_by_folder:
+                    final_output_dir = os.path.join(output_dir, matched_rule['name'])
+
+                destination_path = os.path.join(final_output_dir, new_filename)
+                
+                if dry_run:
+                    logging.info(f"  [DRY RUN] Match: {matched_rule['name']}")
+                    logging.info(f"  [DRY RUN] Move to: {destination_path}")
                 else:
-                    # Handle duplicates if file already exists
-                    if os.path.exists(new_path):
-                        print(f"  [!] File {new_filename} already exists. Skipping.")
+                    # Create subfolder if needed
+                    if organize_by_folder and not os.path.exists(final_output_dir):
+                        try:
+                            os.makedirs(final_output_dir)
+                        except OSError as e:
+                            logging.error(f"  Could not create subfolder {final_output_dir}: {e}")
+                            continue
+
+                    # Handle file collision
+                    if os.path.exists(destination_path):
+                        logging.warning(f"  [Skipping] File already exists: {destination_path}")
                     else:
-                        shutil.move(filepath, new_path)
-                        print(f"  [SUCCESS] Renamed to: {new_filename}")
+                        try:
+                            shutil.move(filepath, destination_path)
+                            logging.info(f"  [SUCCESS] Renamed to: {destination_path}")
+                            files_renamed += 1
+                        except OSError as e:
+                            logging.error(f"  Failed to move file: {e}")
             else:
-                print(f"  [!] Date found '{raw_date}' but could not parse.")
+                logging.warning(f"  [Skipping] Date matched '{raw_date}' but parsing failed.")
         else:
-            print(f"  [!] Bank identified as {matched_rule['name']}, but regex failed to find date.")
+            logging.warning(f"  [Skipping] Identified as {matched_rule['name']} but regex failed to find date.")
+
+    logging.info("------------------------------------------------")
+    logging.info(f"Summary: Processed {files_processed} files. Renamed {files_renamed} files.")
 
 if __name__ == "__main__":
-    process_files()
+    parser_args = argparse.ArgumentParser(description="Rename PDF bank statements based on content.")
+    
+    # Arguments
+    parser_args.add_argument("--input", "-i", default="./inbox", help="Input directory containing PDFs (default: ./inbox)")
+    parser_args.add_argument("--output", "-o", default="./processed", help="Output directory for renamed files (default: ./processed)")
+    parser_args.add_argument("--dry-run", action="store_true", help="Run without moving files to see what would happen")
+    parser_args.add_argument("--organize", action="store_true", help="Create subfolders for each bank in the output directory")
+    parser_args.add_argument("--verbose", "-v", action="store_true", help="Increase output verbosity")
+
+    args = parser_args.parse_args()
+
+    process_files(args.input, args.output, args.dry_run, args.organize)
