@@ -30,6 +30,11 @@ BANK_RULES = [
         "name": "Chase_Credit_Card",
         "signature": "Chase Card Services",
         "date_regex": r"Opening/Closing Date\s+\d{2}/\d{2}/\d{2}\s+-\s+(\d{2}/\d{2}/\d{2})"
+    },
+        {
+        "name": "HealthEquity",
+        "signature": "HealthEquity",
+        "date_regex": r"through(\d{2}/\d{2}/\d{2})"
     }
 ]
 # =======================================================
